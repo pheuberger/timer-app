@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ember — Candle Timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div class="veil" aria-hidden="true"></div>
+
+  <div id="ui">
+    <header class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">EMBER</span>
+    </header>
+
+    <main class="panel">
+      <div class="readout">
+        <div id="status" class="status">Ready</div>
+        <h1 id="time" class="time">05:00</h1>
+      </div>
+
+      <div class="rule" aria-hidden="true"></div>
+
+      <div id="controls" class="controls">
+        <div class="presets" id="presets"></div>
+
+        <div class="custom">
+          <button class="custom-toggle" id="customToggle">Custom time</button>
+          <div class="custom-fields" id="customFields" hidden>
+            <div class="field">
+              <input type="number" id="inH" min="0" max="9" value="0" inputmode="numeric" />
+              <label>hrs</label>
+            </div>
+            <span class="colon">:</span>
+            <div class="field">
+              <input type="number" id="inM" min="0" max="59" value="5" inputmode="numeric" />
+              <label>min</label>
+            </div>
+            <span class="colon">:</span>
+            <div class="field">
+              <input type="number" id="inS" min="0" max="59" value="0" inputmode="numeric" />
+              <label>sec</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="startBtn" class="btn btn-primary">Light the candle</button>
+          <button id="resetBtn" class="btn btn-ghost" hidden>Reset</button>
+        </div>
+      </div>
+
+      <div id="done" class="done" hidden>
+        <div class="done-text">Time's up</div>
+        <button id="doneReset" class="btn btn-primary">New timer</button>
+      </div>
+    </main>
+
+    <div class="hint">Space — start · reset</div>
+  </div>
+
+  <div class="grain" aria-hidden="true"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

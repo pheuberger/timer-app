@@ -1,0 +1,306 @@
+:root {
+  --bg: #07060b;
+  --text: #f2ece2;
+  --muted: rgba(216, 203, 184, 0.55);
+  --faint: rgba(216, 203, 184, 0.28);
+  --ember: #ff7a2e;
+  --ember-soft: #ffb066;
+  --glass: rgba(16, 13, 12, 0.35);
+  --border: rgba(255, 190, 130, 0.14);
+  --gutter: clamp(28px, 6vw, 88px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  z-index: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Gradient veil — vignette focused on the candle (right third), cool wash
+   falling from top-left, floor fade. Sits between the scene and the UI.
+--------------------------------------------------------------------------- */
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(52% 44% at 66% 55%, rgba(255, 122, 46, 0.05), transparent 70%),
+    radial-gradient(70% 60% at 8% -6%, rgba(70, 86, 168, 0.13), transparent 65%),
+    linear-gradient(180deg, rgba(8, 7, 16, 0.55) 0%, transparent 26%, transparent 60%, rgba(5, 4, 10, 0.72) 100%),
+    radial-gradient(115% 95% at 66% 52%, transparent 42%, rgba(4, 3, 8, 0.6) 82%, rgba(2, 2, 5, 0.9) 100%);
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* ---------------------------------------------------------------------------
+   UI — composed on the left third; scene owns the right two-thirds
+--------------------------------------------------------------------------- */
+#ui {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.controls, .done { pointer-events: auto; }
+
+/* Brand — top-left thirds intersection */
+.brand {
+  position: absolute;
+  top: clamp(24px, 4.5vh, 44px);
+  left: var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.8;
+}
+.brand-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ember);
+  box-shadow: 0 0 12px 2px var(--ember);
+  animation: pulse 3s ease-in-out infinite;
+}
+.brand-name {
+  font-weight: 400;
+  letter-spacing: 0.48em;
+  font-size: 12px;
+  padding-left: 2px;
+  color: var(--muted);
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* Panel — anchored so the readout sits on the upper golden section */
+.panel {
+  position: absolute;
+  left: var(--gutter);
+  top: 29vh;
+  width: min(420px, 44vw);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(20px, 3.4vh, 34px);
+}
+
+/* Readout */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.status::before {
+  content: "";
+  width: 26px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--ember), transparent);
+  box-shadow: 0 0 8px rgba(255, 122, 46, 0.5);
+}
+.time {
+  margin-top: 12px;
+  font-size: clamp(72px, 10.5vw, 150px);
+  font-weight: 200;
+  line-height: 0.95;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(165deg, #fff7ec 15%, #d8c6ae 55%, #6f6459 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 38px rgba(255, 140, 60, 0.16));
+}
+
+/* Hairline at the golden width of the panel */
+.rule {
+  width: 61.8%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 190, 130, 0.3), rgba(255, 190, 130, 0.05) 70%, transparent);
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 22px;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+  max-width: 340px;
+}
+.chip {
+  background: transparent;
+  border: 1px solid rgba(255, 235, 210, 0.1);
+  color: var(--muted);
+  padding: 8px 15px;
+  border-radius: 100px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 300;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: border-color 0.25s, background 0.25s, color 0.25s, transform 0.15s;
+}
+.chip:hover { color: var(--text); border-color: rgba(255, 190, 130, 0.4); transform: translateY(-1px); }
+.chip.active {
+  color: var(--ember-soft);
+  border-color: rgba(255, 122, 46, 0.55);
+  background: rgba(255, 122, 46, 0.08);
+  box-shadow: 0 0 20px rgba(255, 122, 46, 0.12);
+}
+
+/* Custom */
+.custom { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.custom-toggle {
+  background: none;
+  border: none;
+  color: var(--faint);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.custom-toggle:hover { color: var(--text); }
+.custom-fields { display: flex; align-items: flex-end; gap: 10px; }
+.field { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.field input {
+  width: 62px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 22px;
+  font-weight: 300;
+  text-align: center;
+  padding: 10px 6px;
+  backdrop-filter: blur(12px);
+  transition: border-color 0.2s;
+}
+.field input:focus { outline: none; border-color: var(--ember); }
+.field input::-webkit-outer-spin-button,
+.field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.field input[type=number] { -moz-appearance: textfield; }
+.field label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.colon { font-size: 20px; color: var(--faint); padding-bottom: 14px; }
+
+/* Actions */
+.actions { display: flex; gap: 12px; }
+.btn {
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  padding: 14px 30px;
+  border-radius: 100px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.15s, box-shadow 0.3s, background 0.25s, opacity 0.2s;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary {
+  background: linear-gradient(180deg, var(--ember-soft), var(--ember));
+  color: #1a0f06;
+  box-shadow: 0 6px 30px rgba(255, 122, 46, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.btn-primary:hover { box-shadow: 0 8px 44px rgba(255, 122, 46, 0.5); }
+.btn-ghost {
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text);
+  backdrop-filter: blur(12px);
+}
+.btn-ghost:hover { border-color: rgba(255, 190, 130, 0.4); }
+
+/* Done — lives in the panel flow, never overlaps */
+.done {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+}
+.done-text {
+  font-size: 13px;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--ember-soft);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Hint — bottom-right thirds intersection, balances the brand */
+.hint {
+  position: absolute;
+  right: var(--gutter);
+  bottom: clamp(20px, 4.5vh, 40px);
+  font-size: 10.5px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.hidden, [hidden] { display: none !important; }
+
+/* Portrait / small screens — candle recenters (handled in JS), UI drops
+   to the lower third as a single column */
+@media (max-width: 720px), (max-aspect-ratio: 1/1) {
+  .panel {
+    left: 24px;
+    right: 24px;
+    width: auto;
+    top: auto;
+    bottom: 6vh;
+    gap: 18px;
+  }
+  .time { font-size: clamp(56px, 16vw, 92px); }
+  .brand { left: 24px; }
+  .hint { display: none; }
+  .presets { max-width: none; }
+  .veil {
+    background:
+      radial-gradient(60% 30% at 50% 30%, rgba(255, 122, 46, 0.05), transparent 70%),
+      radial-gradient(70% 60% at 8% -6%, rgba(70, 86, 168, 0.13), transparent 65%),
+      linear-gradient(180deg, rgba(8, 7, 16, 0.55) 0%, transparent 22%, transparent 46%, rgba(4, 3, 8, 0.78) 82%),
+      radial-gradient(130% 80% at 50% 34%, transparent 45%, rgba(2, 2, 5, 0.85) 100%);
+  }
+}

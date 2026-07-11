@@ -717,6 +717,28 @@ function initAudio() {
   if (!Ctor) return null;
   const ctx = new Ctor();
 
+  // Ask the OS to treat us like a media player (iOS 16.4+ / Safari 17), so
+  // audio keeps running when the PWA is backgrounded or the screen locks.
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+  } catch (e) { /* unsupported */ }
+
+  // Keep-alive: a looping, effectively-inaudible noise bed (~-68 dBFS).
+  // Browsers suspend audio contexts they consider silent once the tab/PWA is
+  // hidden, which freezes the audio clock — and with it the pre-scheduled
+  // fade-in and 00:00 strike. A live non-zero signal keeps the context
+  // rendering so they land on time even when defocused.
+  const keepAliveBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  {
+    const data = keepAliveBuf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.0004;
+  }
+  const keepAlive = ctx.createBufferSource();
+  keepAlive.buffer = keepAliveBuf;
+  keepAlive.loop = true;
+  keepAlive.connect(ctx.destination);
+  keepAlive.start();
+
   // safety compressor so the pad + chimes can never clip harshly
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -14;
@@ -871,6 +893,7 @@ function armAmbientFade(runMs) {
   g.setTargetAtTime(AMBIENT_LEVEL, tEnd + 0.01, 1.2); // relax off the crest
   cancelArrival();
   scheduleArrival(tEnd);
+  audio.tEndCtx = tEnd; // context-clock time of 00:00, for slip detection
 }
 
 const CHIME_NOTES = [440, 493.88, 659.25, 739.99, 880]; // A B E F# A — pad tones
@@ -907,10 +930,24 @@ function playChime() {
 function finishAudio() {
   if (!audio) return;
   const { ctx, master, filter } = audio;
+  if (ctx.state !== "running") ctx.resume().catch(() => {});
   const t = ctx.currentTime;
   const g = master.gain;
   holdParam(g, t); // hold the crest, then continue its release
-  g.setTargetAtTime(AMBIENT_LEVEL, t, 1.2);
+  // If the context clock never reached the scheduled 00:00, the OS suspended
+  // audio while we were backgrounded and the swell + bowl strike were lost.
+  // Fire them now (they'll sound the moment the context resumes) instead of
+  // leaving silence.
+  const slipped = audio.tEndCtx != null && t < audio.tEndCtx - 0.1;
+  audio.tEndCtx = null;
+  if (slipped) {
+    cancelArrival();
+    scheduleArrival(t + 0.05);
+    g.linearRampToValueAtTime(AMBIENT_LEVEL * ARRIVAL_CREST, t + 0.35);
+    g.setTargetAtTime(AMBIENT_LEVEL, t + 0.35, 1.2);
+  } else {
+    g.setTargetAtTime(AMBIENT_LEVEL, t, 1.2);
+  }
   // ease down to a quieter bed over the next minute so it never nags
   g.setTargetAtTime(AMBIENT_LEVEL * 0.55, t + 15, 30);
   // gentle filter bloom under the bowl strike
@@ -926,6 +963,7 @@ function fadeOutAudio() {
   clearTimeout(chimeTimeout);
   if (!audio) return;
   cancelArrival(); // a reset before zero also cancels the pending strike
+  audio.tEndCtx = null;
   const { ctx, master, filter } = audio;
   const t = ctx.currentTime;
   holdParam(master.gain, t);
@@ -943,7 +981,7 @@ function start() {
   state = State.RUNNING;
   lastTick = performance.now();
   const a = initAudio();
-  if (a && a.ctx.state === "suspended") a.ctx.resume();
+  if (a && a.ctx.state !== "running") a.ctx.resume().catch(() => {});
   armAmbientFade(remainingMs);
   el.controls.setAttribute("hidden", "");
   el.resetBtn.removeAttribute("hidden");
@@ -1045,6 +1083,17 @@ function tickRunning() {
 // pre-scheduled on the audio clock so it still lands at 00:00, but finish()
 // (chimes, status, sparks) needs a JS heartbeat too.
 setInterval(() => { if (state === State.RUNNING) tickRunning(); }, 500);
+
+// Catch up the moment the app returns to the foreground: resume a context the
+// OS suspended (iOS marks it "interrupted") and tick immediately so a
+// countdown that hit zero while we were frozen fires finish() — and its
+// slipped-schedule catch-up sound — right away instead of on the next
+// throttled interval.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (audio && audio.ctx.state !== "running") audio.ctx.resume().catch(() => {});
+  if (state === State.RUNNING) tickRunning();
+});
 
 function animate() {
   requestAnimationFrame(animate);

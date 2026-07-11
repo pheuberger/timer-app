@@ -681,9 +681,24 @@ el.customToggle.addEventListener("click", () => {
 const FADE_LEAD_MS = 7000;   // fade-in window before 00:00
 const AMBIENT_LEVEL = 0.4;   // pad resting volume after the timer hits zero
 const ARRIVAL_CREST = 1.35;  // swell peaks this far above rest right at 00:00
+const ARM_LEAD_MS = FADE_LEAD_MS + 1500; // wake the audio context this early
+
+// Declare a mixable audio session before any AudioContext exists — WebKit
+// applies the type when the session activates, so setting it after creation
+// can be too late. "ambient" mixes with the user's music instead of pausing
+// it; the trade-off is iOS mutes ambient audio while the PWA is backgrounded,
+// so a 00:00 that passes in the background is sounded by the slip-recovery
+// path in finishAudio() the moment the app returns. The web has no
+// mix-with-others "playback" session, so music continuity and a guaranteed
+// background chime are mutually exclusive.
+try {
+  if (navigator.audioSession) navigator.audioSession.type = "ambient";
+} catch (e) { /* unsupported */ }
 
 let audio = null;            // created lazily on Start (needs a user gesture)
 let chimeTimeout = 0;
+let armTimeout = 0;
+let suspendTimeout = 0;
 
 // Cancel pending automation but keep the param's current value (Firefox has
 // no cancelAndHoldAtTime).
@@ -716,27 +731,6 @@ function initAudio() {
   const Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) return null;
   const ctx = new Ctor();
-
-  // "ambient" mixes our audio with whatever else is playing (iOS 16.4+ /
-  // Safari 17) instead of pausing the user's music. The trade-off: unlike a
-  // "playback" session, iOS mutes ambient audio when the PWA is backgrounded
-  // or the screen locks, so a chime landing at 00:00 while backgrounded is
-  // delivered by the slip-recovery path in finishAudio() the moment the app
-  // returns instead. The web has no mix-with-others playback session, so
-  // "don't interrupt music" and "guaranteed background chime" are exclusive.
-  try {
-    if (navigator.audioSession) navigator.audioSession.type = "ambient";
-  } catch (e) { /* unsupported */ }
-
-  // Keep-alive: a looping, truly-silent buffer keeps the render graph (and
-  // the audio clock the fade/strike are scheduled on) active where the
-  // platform allows without ever registering as audible — an audible signal
-  // would make Chrome on Android take audio focus and pause the user's music.
-  const keepAlive = ctx.createBufferSource();
-  keepAlive.buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-  keepAlive.loop = true;
-  keepAlive.connect(ctx.destination);
-  keepAlive.start();
 
   // safety compressor so the pad + chimes can never clip harshly
   const limiter = ctx.createDynamicsCompressor();
@@ -895,6 +889,18 @@ function armAmbientFade(runMs) {
   audio.tEndCtx = tEnd; // context-clock time of 00:00, for slip detection
 }
 
+// The context stays suspended for most of the countdown — a suspended context
+// releases the OS audio session entirely, so the user's music is untouched.
+// Arming resumes it just ahead of the fade window and schedules the swell +
+// strike. Anything that keeps this from running in time (backgrounded PWA,
+// throttled timers) is caught by the slip-recovery path in finishAudio().
+function armAudio() {
+  if (!audio || audio.armed || state !== State.RUNNING) return;
+  audio.armed = true;
+  if (audio.ctx.state !== "running") audio.ctx.resume().catch(() => {});
+  armAmbientFade(remainingMs);
+}
+
 const CHIME_NOTES = [440, 493.88, 659.25, 739.99, 880]; // A B E F# A — pad tones
 
 function playChime() {
@@ -933,11 +939,12 @@ function finishAudio() {
   const t = ctx.currentTime;
   const g = master.gain;
   holdParam(g, t); // hold the crest, then continue its release
-  // If the context clock never reached the scheduled 00:00, the OS suspended
-  // audio while we were backgrounded and the swell + bowl strike were lost.
+  // If the swell + bowl strike were never armed (00:00 passed while the app
+  // was backgrounded and JS frozen) or the context clock never reached the
+  // scheduled zero (the OS suspended audio mid-schedule), they were lost.
   // Fire them now (they'll sound the moment the context resumes) instead of
   // leaving silence.
-  const slipped = audio.tEndCtx != null && t < audio.tEndCtx - 0.1;
+  const slipped = audio.tEndCtx == null || t < audio.tEndCtx - 0.1;
   audio.tEndCtx = null;
   if (slipped) {
     cancelArrival();
@@ -960,15 +967,23 @@ function finishAudio() {
 
 function fadeOutAudio() {
   clearTimeout(chimeTimeout);
+  clearTimeout(armTimeout);
   if (!audio) return;
   cancelArrival(); // a reset before zero also cancels the pending strike
   audio.tEndCtx = null;
+  audio.armed = false;
   const { ctx, master, filter } = audio;
   const t = ctx.currentTime;
   holdParam(master.gain, t);
   master.gain.setTargetAtTime(0, t, 0.35); // ~1.5s tail out
   holdParam(filter.frequency, t);
   filter.frequency.setTargetAtTime(520, t, 2);
+  // once the tail is inaudible, suspend the context to hand the audio
+  // session back to whatever the user was listening to
+  clearTimeout(suspendTimeout);
+  suspendTimeout = setTimeout(() => {
+    if (audio && state === State.IDLE) audio.ctx.suspend().catch(() => {});
+  }, 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -980,8 +995,21 @@ function start() {
   state = State.RUNNING;
   lastTick = performance.now();
   const a = initAudio();
-  if (a && a.ctx.state !== "running") a.ctx.resume().catch(() => {});
-  armAmbientFade(remainingMs);
+  if (a) {
+    clearTimeout(suspendTimeout);
+    clearTimeout(armTimeout);
+    a.armed = false;
+    // resume inside the user gesture so later programmatic resumes are allowed
+    if (a.ctx.state !== "running") a.ctx.resume().catch(() => {});
+    if (remainingMs > ARM_LEAD_MS) {
+      // park the context so the OS gives the audio session back to the
+      // user's music; armAudio() wakes it just before the fade window
+      a.ctx.suspend().catch(() => {});
+      armTimeout = setTimeout(armAudio, remainingMs - ARM_LEAD_MS);
+    } else {
+      armAudio();
+    }
+  }
   el.controls.setAttribute("hidden", "");
   el.resetBtn.removeAttribute("hidden");
   el.status.textContent = "Burning";
@@ -1074,6 +1102,9 @@ function tickRunning() {
   const now = performance.now();
   remainingMs -= now - lastTick;
   lastTick = now;
+  // safety net for the arm setTimeout, which browsers throttle: arm as soon
+  // as any tick lands inside the lead window
+  if (remainingMs > 0 && remainingMs <= ARM_LEAD_MS) armAudio();
   if (remainingMs <= 0) { finish(); }
   updateTimeLabel(Math.max(0, remainingMs));
 }
@@ -1083,15 +1114,18 @@ function tickRunning() {
 // (chimes, status, sparks) needs a JS heartbeat too.
 setInterval(() => { if (state === State.RUNNING) tickRunning(); }, 500);
 
-// Catch up the moment the app returns to the foreground: resume a context the
-// OS suspended (iOS marks it "interrupted") and tick immediately so a
-// countdown that hit zero while we were frozen fires finish() — and its
+// Catch up the moment the app returns to the foreground: tick immediately so
+// a countdown that hit zero while we were frozen fires finish() — and its
 // slipped-schedule catch-up sound — right away instead of on the next
-// throttled interval.
+// throttled interval. Only resume the context when it should be audible
+// (DONE); mid-countdown it is parked on purpose so music keeps playing, and
+// tickRunning()/armAudio() wake it if we're already inside the lead window.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
-  if (audio && audio.ctx.state !== "running") audio.ctx.resume().catch(() => {});
   if (state === State.RUNNING) tickRunning();
+  if (audio && state === State.DONE && audio.ctx.state !== "running") {
+    audio.ctx.resume().catch(() => {});
+  }
 });
 
 function animate() {

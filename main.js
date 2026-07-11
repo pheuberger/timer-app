@@ -717,24 +717,23 @@ function initAudio() {
   if (!Ctor) return null;
   const ctx = new Ctor();
 
-  // Ask the OS to treat us like a media player (iOS 16.4+ / Safari 17), so
-  // audio keeps running when the PWA is backgrounded or the screen locks.
+  // "ambient" mixes our audio with whatever else is playing (iOS 16.4+ /
+  // Safari 17) instead of pausing the user's music. The trade-off: unlike a
+  // "playback" session, iOS mutes ambient audio when the PWA is backgrounded
+  // or the screen locks, so a chime landing at 00:00 while backgrounded is
+  // delivered by the slip-recovery path in finishAudio() the moment the app
+  // returns instead. The web has no mix-with-others playback session, so
+  // "don't interrupt music" and "guaranteed background chime" are exclusive.
   try {
-    if (navigator.audioSession) navigator.audioSession.type = "playback";
+    if (navigator.audioSession) navigator.audioSession.type = "ambient";
   } catch (e) { /* unsupported */ }
 
-  // Keep-alive: a looping, effectively-inaudible noise bed (~-68 dBFS).
-  // Browsers suspend audio contexts they consider silent once the tab/PWA is
-  // hidden, which freezes the audio clock — and with it the pre-scheduled
-  // fade-in and 00:00 strike. A live non-zero signal keeps the context
-  // rendering so they land on time even when defocused.
-  const keepAliveBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-  {
-    const data = keepAliveBuf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.0004;
-  }
+  // Keep-alive: a looping, truly-silent buffer keeps the render graph (and
+  // the audio clock the fade/strike are scheduled on) active where the
+  // platform allows without ever registering as audible — an audible signal
+  // would make Chrome on Android take audio focus and pause the user's music.
   const keepAlive = ctx.createBufferSource();
-  keepAlive.buffer = keepAliveBuf;
+  keepAlive.buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   keepAlive.loop = true;
   keepAlive.connect(ctx.destination);
   keepAlive.start();

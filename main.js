@@ -671,6 +671,270 @@ el.customToggle.addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Ambient completion sound — a slow synth pad that fades in over the final
+// seconds of the countdown, reaching full volume right at 00:00, then
+// lingering (with sparse soft chimes) until reset. Everything is synthesized
+// with the Web Audio API — no samples. The fade is scheduled on the audio
+// clock when the timer starts, so it stays sample-accurate even if the tab
+// is backgrounded and rAF freezes.
+// ---------------------------------------------------------------------------
+const FADE_LEAD_MS = 7000;   // fade-in window before 00:00
+const AMBIENT_LEVEL = 0.4;   // pad resting volume after the timer hits zero
+const ARRIVAL_CREST = 1.35;  // swell peaks this far above rest right at 00:00
+
+let audio = null;            // created lazily on Start (needs a user gesture)
+let chimeTimeout = 0;
+
+// Cancel pending automation but keep the param's current value (Firefox has
+// no cancelAndHoldAtTime).
+function holdParam(param, t) {
+  if (param.cancelAndHoldAtTime) {
+    param.cancelAndHoldAtTime(t);
+  } else {
+    const v = param.value;
+    param.cancelScheduledValues(t);
+    param.setValueAtTime(v, t);
+  }
+}
+
+// Synthesized impulse response: decaying stereo noise reads as a soft room.
+function makeImpulse(ctx, seconds, decay) {
+  const rate = ctx.sampleRate;
+  const len = Math.floor(rate * seconds);
+  const buf = ctx.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+
+function initAudio() {
+  if (audio) return audio;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  const ctx = new Ctor();
+
+  // safety compressor so the pad + chimes can never clip harshly
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -14;
+  limiter.knee.value = 20;
+  limiter.ratio.value = 6;
+  limiter.connect(ctx.destination);
+
+  const master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(limiter);
+
+  // shared space: dry signal plus a synthesized reverb tail
+  const bus = ctx.createGain();
+  const dry = ctx.createGain();
+  dry.gain.value = 0.6;
+  const verb = ctx.createConvolver();
+  verb.buffer = makeImpulse(ctx, 3.5, 2.6);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.5;
+  bus.connect(dry);
+  dry.connect(master);
+  bus.connect(verb);
+  verb.connect(wet);
+  wet.connect(master);
+
+  // one warm lowpass the whole pad sits behind, cutoff wandering slowly
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 520;
+  filter.Q.value = 0.7;
+  filter.connect(bus);
+  const filterLfo = ctx.createOscillator();
+  filterLfo.frequency.value = 0.06;
+  const filterLfoDepth = ctx.createGain();
+  filterLfoDepth.gain.value = 170;
+  filterLfo.connect(filterLfoDepth);
+  filterLfoDepth.connect(filter.frequency);
+  filterLfo.start();
+
+  // Pad voices — an Asus2 spread (A, B, E): warm but uncommitted, neither
+  // major-bright nor minor-mournful. Detuned saw pairs through the lowpass;
+  // the sub stays a clean sine. Each voice breathes and drifts across the
+  // stereo field on its own slow cycle so the pad never sits still.
+  const VOICES = [
+    { freq: 55.0,   gain: 0.17,  detune: 0 }, // A1 sub
+    { freq: 110.0,  gain: 0.2,   detune: 5 }, // A2
+    { freq: 164.81, gain: 0.15,  detune: 4 }, // E3
+    { freq: 220.0,  gain: 0.11,  detune: 6 }, // A3
+    { freq: 246.94, gain: 0.08,  detune: 5 }, // B3
+    { freq: 329.63, gain: 0.055, detune: 7 }, // E4
+  ];
+  VOICES.forEach((v, i) => {
+    const vGain = ctx.createGain();
+    vGain.gain.value = v.gain;
+    const pan = ctx.createStereoPanner();
+    vGain.connect(pan);
+    pan.connect(filter);
+
+    for (const det of v.detune ? [v.detune, -v.detune] : [0]) {
+      const osc = ctx.createOscillator();
+      osc.type = v.detune ? "sawtooth" : "sine";
+      osc.frequency.value = v.freq;
+      osc.detune.value = det;
+      osc.connect(vGain);
+      osc.start();
+    }
+
+    const breath = ctx.createOscillator();
+    breath.frequency.value = 0.045 + i * 0.019;
+    const breathDepth = ctx.createGain();
+    breathDepth.gain.value = v.gain * 0.45;
+    breath.connect(breathDepth);
+    breathDepth.connect(vGain.gain);
+    breath.start();
+
+    const drift = ctx.createOscillator();
+    drift.frequency.value = 0.031 + i * 0.013;
+    const driftDepth = ctx.createGain();
+    driftDepth.gain.value = 0.2 + 0.09 * (i % 3);
+    drift.connect(driftDepth);
+    driftDepth.connect(pan.pan);
+    drift.start();
+  });
+
+  // chimes bypass the lowpass so they sparkle slightly above the pad
+  const chimeBus = ctx.createGain();
+  chimeBus.connect(bus);
+
+  audio = { ctx, master, filter, chimeBus };
+  return audio;
+}
+
+// The arrival at 00:00 — a soft singing-bowl-like strike (sine partials with
+// a slow beat plus a low body swell), scheduled sample-accurately on the
+// audio clock so zero is unmistakable even in a backgrounded tab.
+function scheduleArrival(tEnd) {
+  const { ctx, chimeBus } = audio;
+  const nodes = [];
+  const strike = (freq, peak, attack, decay) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, tEnd);
+    g.gain.linearRampToValueAtTime(peak, tEnd + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, tEnd + decay);
+    osc.connect(g);
+    g.connect(chimeBus);
+    osc.start(tEnd);
+    osc.stop(tEnd + decay + 0.5);
+    nodes.push(osc, g);
+  };
+  strike(440, 0.3, 0.06, 8);    // fundamental — the "ding"
+  strike(441.8, 0.12, 0.06, 8); // detuned twin — slow bowl-like beating
+  strike(883, 0.12, 0.05, 6);   // shimmer octave
+  strike(110, 0.22, 0.2, 3.5);  // low body swell under the strike
+  audio.pendingArrival = nodes;
+}
+
+function cancelArrival() {
+  if (!audio || !audio.pendingArrival) return;
+  for (const n of audio.pendingArrival) {
+    if (n.stop) { try { n.stop(); } catch (e) { /* already stopped */ } }
+    n.disconnect();
+  }
+  audio.pendingArrival = null;
+}
+
+// Schedule the fade-in the moment the timer starts: silence until the last
+// few seconds, then a smoothstep swell that crests just past resting volume
+// at 00:00 (with the bowl strike) and relaxes — the crest-and-release is
+// what makes hitting zero readable instead of merely "gradually louder".
+function armAmbientFade(runMs) {
+  if (!audio) return;
+  const { ctx, master } = audio;
+  const t0 = ctx.currentTime;
+  const tEnd = t0 + runMs / 1000;
+  const g = master.gain;
+  holdParam(g, t0);
+  g.setTargetAtTime(0, t0, 0.05); // settle any residue from a quick restart
+  // clamp so very short timers still get a brief swell without the curve
+  // colliding with the settle above
+  const tFade = Math.max(tEnd - FADE_LEAD_MS / 1000, t0 + 0.25);
+  const dur = Math.max(0.05, tEnd - tFade);
+  const N = 64;
+  const curve = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const x = i / (N - 1);
+    curve[i] = AMBIENT_LEVEL * ARRIVAL_CREST * x * x * (3 - 2 * x);
+  }
+  g.setValueCurveAtTime(curve, tFade, dur);
+  g.setTargetAtTime(AMBIENT_LEVEL, tEnd + 0.01, 1.2); // relax off the crest
+  cancelArrival();
+  scheduleArrival(tEnd);
+}
+
+const CHIME_NOTES = [440, 493.88, 659.25, 739.99, 880]; // A B E F# A — pad tones
+
+function playChime() {
+  if (!audio || state !== State.DONE) return;
+  const { ctx, chimeBus } = audio;
+  const t = ctx.currentTime;
+  const freq = CHIME_NOTES[Math.floor(Math.random() * CHIME_NOTES.length)];
+  const g = ctx.createGain();
+  g.connect(chimeBus);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.11, t + 0.4); // soft bloom, no attack click
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  osc.connect(g);
+  // slightly-off octave partial gives a faint bell-like beat
+  const shimmer = ctx.createOscillator();
+  shimmer.type = "sine";
+  shimmer.frequency.value = freq * 2.007;
+  const shimmerGain = ctx.createGain();
+  shimmerGain.gain.value = 0.3;
+  shimmer.connect(shimmerGain);
+  shimmerGain.connect(g);
+  osc.start(t);
+  shimmer.start(t);
+  osc.stop(t + 6);
+  shimmer.stop(t + 6);
+  chimeTimeout = setTimeout(playChime, 4000 + Math.random() * 6000);
+}
+
+function finishAudio() {
+  if (!audio) return;
+  const { ctx, master, filter } = audio;
+  const t = ctx.currentTime;
+  const g = master.gain;
+  holdParam(g, t); // hold the crest, then continue its release
+  g.setTargetAtTime(AMBIENT_LEVEL, t, 1.2);
+  // ease down to a quieter bed over the next minute so it never nags
+  g.setTargetAtTime(AMBIENT_LEVEL * 0.55, t + 15, 30);
+  // gentle filter bloom under the bowl strike
+  holdParam(filter.frequency, t);
+  filter.frequency.linearRampToValueAtTime(880, t + 5);
+  filter.frequency.setTargetAtTime(620, t + 12, 20);
+  // give the strike room to ring before the sparse chimes begin
+  clearTimeout(chimeTimeout);
+  chimeTimeout = setTimeout(playChime, 4500 + Math.random() * 3000);
+}
+
+function fadeOutAudio() {
+  clearTimeout(chimeTimeout);
+  if (!audio) return;
+  cancelArrival(); // a reset before zero also cancels the pending strike
+  const { ctx, master, filter } = audio;
+  const t = ctx.currentTime;
+  holdParam(master.gain, t);
+  master.gain.setTargetAtTime(0, t, 0.35); // ~1.5s tail out
+  holdParam(filter.frequency, t);
+  filter.frequency.setTargetAtTime(520, t, 2);
+}
+
+// ---------------------------------------------------------------------------
 // Start / reset
 // ---------------------------------------------------------------------------
 function start() {
@@ -678,6 +942,9 @@ function start() {
   if (remainingMs <= 0) remainingMs = totalMs;
   state = State.RUNNING;
   lastTick = performance.now();
+  const a = initAudio();
+  if (a && a.ctx.state === "suspended") a.ctx.resume();
+  armAmbientFade(remainingMs);
   el.controls.setAttribute("hidden", "");
   el.resetBtn.removeAttribute("hidden");
   el.status.textContent = "Burning";
@@ -685,6 +952,7 @@ function start() {
 
 function reset() {
   state = State.IDLE;
+  fadeOutAudio();
   remainingMs = totalMs;
   updateTimeLabel(remainingMs);
   el.controls.removeAttribute("hidden");
@@ -700,6 +968,7 @@ function finish() {
   el.status.textContent = "Done";
   el.done.removeAttribute("hidden");
   el.resetBtn.setAttribute("hidden", "");
+  finishAudio();
   // burst of sparks on completion
   for (let i = 0; i < 90; i++) emitSpark(0, currentTopY(), 0, 2.2);
 }
@@ -764,19 +1033,26 @@ function burnRatePerSec() {
   return 1 / (totalMs / 1000);
 }
 
+function tickRunning() {
+  const now = performance.now();
+  remainingMs -= now - lastTick;
+  lastTick = now;
+  if (remainingMs <= 0) { finish(); }
+  updateTimeLabel(Math.max(0, remainingMs));
+}
+
+// Background safety net: rAF freezes in hidden tabs. The ambient fade is
+// pre-scheduled on the audio clock so it still lands at 00:00, but finish()
+// (chimes, status, sparks) needs a JS heartbeat too.
+setInterval(() => { if (state === State.RUNNING) tickRunning(); }, 500);
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
-  const now = performance.now();
   const t = clock.elapsedTime;
 
   // --- timer progression ---
-  if (state === State.RUNNING) {
-    remainingMs -= now - lastTick;
-    lastTick = now;
-    if (remainingMs <= 0) { finish(); }
-    updateTimeLabel(Math.max(0, remainingMs));
-  }
+  if (state === State.RUNNING) tickRunning();
 
   // --- candle height + asymmetric melt ---
   const h = currentHeight();

@@ -260,13 +260,6 @@ html, body {
   align-items: flex-start;
   gap: 20px;
 }
-.done-text {
-  font-size: 13px;
-  letter-spacing: 0.38em;
-  text-transform: uppercase;
-  color: var(--ember-soft);
-  animation: pulse 2s ease-in-out infinite;
-}
 
 /* Hint — bottom-right thirds intersection, balances the brand */
 .hint {

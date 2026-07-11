@@ -679,7 +679,8 @@ el.customToggle.addEventListener("click", () => {
 // is backgrounded and rAF freezes.
 // ---------------------------------------------------------------------------
 const FADE_LEAD_MS = 7000;   // fade-in window before 00:00
-const AMBIENT_LEVEL = 0.4;   // pad volume when the timer hits zero
+const AMBIENT_LEVEL = 0.4;   // pad resting volume after the timer hits zero
+const ARRIVAL_CREST = 1.35;  // swell peaks this far above rest right at 00:00
 
 let audio = null;            // created lazily on Start (needs a user gesture)
 let chimeTimeout = 0;
@@ -808,8 +809,46 @@ function initAudio() {
   return audio;
 }
 
+// The arrival at 00:00 — a soft singing-bowl-like strike (sine partials with
+// a slow beat plus a low body swell), scheduled sample-accurately on the
+// audio clock so zero is unmistakable even in a backgrounded tab.
+function scheduleArrival(tEnd) {
+  const { ctx, chimeBus } = audio;
+  const nodes = [];
+  const strike = (freq, peak, attack, decay) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, tEnd);
+    g.gain.linearRampToValueAtTime(peak, tEnd + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, tEnd + decay);
+    osc.connect(g);
+    g.connect(chimeBus);
+    osc.start(tEnd);
+    osc.stop(tEnd + decay + 0.5);
+    nodes.push(osc, g);
+  };
+  strike(440, 0.3, 0.06, 8);    // fundamental — the "ding"
+  strike(441.8, 0.12, 0.06, 8); // detuned twin — slow bowl-like beating
+  strike(883, 0.12, 0.05, 6);   // shimmer octave
+  strike(110, 0.22, 0.2, 3.5);  // low body swell under the strike
+  audio.pendingArrival = nodes;
+}
+
+function cancelArrival() {
+  if (!audio || !audio.pendingArrival) return;
+  for (const n of audio.pendingArrival) {
+    if (n.stop) { try { n.stop(); } catch (e) { /* already stopped */ } }
+    n.disconnect();
+  }
+  audio.pendingArrival = null;
+}
+
 // Schedule the fade-in the moment the timer starts: silence until the last
-// few seconds, then a smoothstep swell landing at full volume at 00:00.
+// few seconds, then a smoothstep swell that crests just past resting volume
+// at 00:00 (with the bowl strike) and relaxes — the crest-and-release is
+// what makes hitting zero readable instead of merely "gradually louder".
 function armAmbientFade(runMs) {
   if (!audio) return;
   const { ctx, master } = audio;
@@ -826,9 +865,12 @@ function armAmbientFade(runMs) {
   const curve = new Float32Array(N);
   for (let i = 0; i < N; i++) {
     const x = i / (N - 1);
-    curve[i] = AMBIENT_LEVEL * x * x * (3 - 2 * x);
+    curve[i] = AMBIENT_LEVEL * ARRIVAL_CREST * x * x * (3 - 2 * x);
   }
   g.setValueCurveAtTime(curve, tFade, dur);
+  g.setTargetAtTime(AMBIENT_LEVEL, tEnd + 0.01, 1.2); // relax off the crest
+  cancelArrival();
+  scheduleArrival(tEnd);
 }
 
 const CHIME_NOTES = [440, 493.88, 659.25, 739.99, 880]; // A B E F# A — pad tones
@@ -867,21 +909,23 @@ function finishAudio() {
   const { ctx, master, filter } = audio;
   const t = ctx.currentTime;
   const g = master.gain;
-  holdParam(g, t);
-  g.linearRampToValueAtTime(AMBIENT_LEVEL, t + 0.4); // catch up if fade undershot
+  holdParam(g, t); // hold the crest, then continue its release
+  g.setTargetAtTime(AMBIENT_LEVEL, t, 1.2);
   // ease down to a quieter bed over the next minute so it never nags
   g.setTargetAtTime(AMBIENT_LEVEL * 0.55, t + 15, 30);
-  // gentle filter bloom marks the arrival without any percussion
+  // gentle filter bloom under the bowl strike
   holdParam(filter.frequency, t);
   filter.frequency.linearRampToValueAtTime(880, t + 5);
   filter.frequency.setTargetAtTime(620, t + 12, 20);
+  // give the strike room to ring before the sparse chimes begin
   clearTimeout(chimeTimeout);
-  chimeTimeout = setTimeout(playChime, 800 + Math.random() * 600);
+  chimeTimeout = setTimeout(playChime, 4500 + Math.random() * 3000);
 }
 
 function fadeOutAudio() {
   clearTimeout(chimeTimeout);
   if (!audio) return;
+  cancelArrival(); // a reset before zero also cancels the pending strike
   const { ctx, master, filter } = audio;
   const t = ctx.currentTime;
   holdParam(master.gain, t);

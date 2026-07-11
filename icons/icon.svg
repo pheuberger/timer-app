@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="54%" r="50%">
+      <stop offset="0%" stop-color="#ff7a2e" stop-opacity="0.32"/>
+      <stop offset="60%" stop-color="#ff7a2e" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#ff7a2e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffb066"/>
+      <stop offset="55%" stop-color="#ff7a2e"/>
+      <stop offset="100%" stop-color="#e85d1a"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff7ec"/>
+      <stop offset="100%" stop-color="#ffd9a8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="#07060b"/>
+  <circle cx="256" cy="276" r="230" fill="url(#glow)"/>
+
+  <!-- flame -->
+  <path fill="url(#flame)" d="M256 118
+    C 262 176, 348 238, 348 314
+    C 348 368, 308 400, 256 400
+    C 204 400, 164 368, 164 314
+    C 164 238, 250 176, 256 118 Z"/>
+
+  <!-- inner core -->
+  <path fill="url(#core)" d="M256 240
+    C 260 272, 306 296, 306 336
+    C 306 366, 284 384, 256 384
+    C 228 384, 206 366, 206 336
+    C 206 296, 252 272, 256 240 Z"/>
+
+  <!-- wick -->
+  <rect x="252" y="400" width="8" height="26" rx="4" fill="#3a2a1f"/>
+</svg>

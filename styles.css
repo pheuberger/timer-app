@@ -163,6 +163,9 @@ html, body {
   max-width: 340px;
 }
 .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   background: transparent;
   border: 1px solid rgba(255, 235, 210, 0.1);
   color: var(--muted);
@@ -182,9 +185,52 @@ html, body {
   background: rgba(255, 122, 46, 0.08);
   box-shadow: 0 0 20px rgba(255, 122, 46, 0.12);
 }
+/* Monochrome line icons — drawn in the chip's current colour so they pick
+   up the muted / hover / active tints like the label does */
+.chip-icon, .icon-opt svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.chip-icon { width: 14px; height: 14px; opacity: 0.9; }
+.chip.icon-only { padding-left: 12px; padding-right: 12px; }
+
+/* Edit mode — chips open the editor, grow a remove control, and a dashed
+   "+" chip appears at the end of the row */
+.chip-x {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: -2px -6px -2px 0;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--faint);
+  transition: color 0.2s, background 0.2s;
+}
+.chip-x:hover { color: var(--text); background: rgba(255, 235, 210, 0.12); }
+.chip-add { display: none; border-style: dashed; color: var(--faint); }
+.editing .chip { border-style: dashed; }
+.editing .chip-x { display: inline-flex; }
+.editing .chip-add { display: inline-flex; }
+.editing .chip.icon-only { padding-right: 15px; }
+.only-editing { display: none; }
+.editing .only-editing { display: inline; }
+.editing .tools-sep.only-editing { display: block; }
+.editing #customToggle, .editing #customToggle + .tools-sep,
+.editing .custom > .custom-fields, .editing .controls > .actions { display: none !important; }
+/* While the editor is open it stands in for the chip list */
+.editor-open .presets, .editor-open .tools { display: none !important; }
 
 /* Custom */
 .custom { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.tools { display: flex; align-items: center; gap: 14px; }
+.tools-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); opacity: 0.6; }
 .custom-toggle {
   background: none;
   border: none;
@@ -224,6 +270,55 @@ html, body {
   color: var(--faint);
 }
 .colon { font-size: 20px; color: var(--faint); padding-bottom: 14px; }
+
+/* Preset editor */
+.editor { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.editor-title {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.icon-grid { display: flex; flex-wrap: wrap; gap: 6px; max-width: 340px; }
+.icon-opt {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(255, 235, 210, 0.1);
+  border-radius: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.25s, background 0.25s, color 0.25s;
+}
+.icon-opt svg { width: 16px; height: 16px; }
+.icon-opt:hover { color: var(--text); border-color: rgba(255, 190, 130, 0.4); }
+.icon-opt.selected {
+  color: var(--ember-soft);
+  border-color: rgba(255, 122, 46, 0.55);
+  background: rgba(255, 122, 46, 0.08);
+}
+.icon-opt.icon-none svg { opacity: 0.6; }
+.field-name { align-items: flex-start; }
+.field-name input {
+  width: min(260px, 100%);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: 12px 14px;
+}
+.field-name input::placeholder { color: var(--faint); }
+.field input.invalid { border-color: var(--ember); animation: nudge 0.3s ease; }
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  60% { transform: translateX(3px); }
+}
+.editor .actions { align-items: center; }
+.custom-toggle.danger { margin-left: 6px; }
+.custom-toggle.danger:hover { color: #ff8f7a; }
 
 /* Actions */
 .actions { display: flex; gap: 12px; }
@@ -274,6 +369,11 @@ html, body {
 
 .hidden, [hidden] { display: none !important; }
 
+/* Short landscape windows: the open editor needs the readout's room */
+@media (max-height: 860px) {
+  .editor-open .readout, .editor-open .rule { display: none; }
+}
+
 /* Portrait / small screens — candle recenters (handled in JS), UI drops
    to the lower third as a single column */
 @media (max-width: 720px), (max-aspect-ratio: 1/1) {
@@ -288,7 +388,9 @@ html, body {
   .time { font-size: clamp(56px, 16vw, 92px); }
   .brand { left: 24px; }
   .hint { display: none; }
-  .presets { max-width: none; }
+  .presets, .icon-grid { max-width: none; }
+  /* the editor needs the vertical room the readout takes on small screens */
+  .editor-open .readout, .editor-open .rule { display: none; }
   .veil {
     background:
       radial-gradient(60% 30% at 50% 30%, rgba(255, 122, 46, 0.05), transparent 70%),

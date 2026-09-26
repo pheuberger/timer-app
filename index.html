@@ -40,7 +40,13 @@
         <div class="presets" id="presets"></div>
 
         <div class="custom">
-          <button class="custom-toggle" id="customToggle">Custom time</button>
+          <div class="tools">
+            <button class="custom-toggle" id="customToggle">Custom time</button>
+            <span class="tools-sep" aria-hidden="true"></span>
+            <button class="custom-toggle" id="editToggle">Edit presets</button>
+            <span class="tools-sep only-editing" aria-hidden="true"></span>
+            <button class="custom-toggle only-editing" id="restoreBtn">Restore defaults</button>
+          </div>
           <div class="custom-fields" id="customFields" hidden>
             <div class="field">
               <input type="number" id="inH" min="0" max="9" value="0" inputmode="numeric" />
@@ -63,6 +69,38 @@
           <button id="startBtn" class="btn btn-primary">Light the candle</button>
           <button id="resetBtn" class="btn btn-ghost" hidden>Reset</button>
         </div>
+
+        <!-- Preset editor: replaces the chip list while a preset is being
+             created or edited -->
+        <form id="editor" class="editor" hidden autocomplete="off">
+          <div class="editor-title" id="editorTitle">New preset</div>
+          <div class="icon-grid" id="iconGrid" role="radiogroup" aria-label="Icon"></div>
+          <div class="field field-name">
+            <input type="text" id="pName" maxlength="18" placeholder="Name" spellcheck="false" />
+            <label for="pName">name</label>
+          </div>
+          <div class="custom-fields">
+            <div class="field">
+              <input type="number" id="pH" min="0" max="9" value="0" inputmode="numeric" />
+              <label for="pH">hrs</label>
+            </div>
+            <span class="colon">:</span>
+            <div class="field">
+              <input type="number" id="pM" min="0" max="59" value="10" inputmode="numeric" />
+              <label for="pM">min</label>
+            </div>
+            <span class="colon">:</span>
+            <div class="field">
+              <input type="number" id="pS" min="0" max="59" value="0" inputmode="numeric" />
+              <label for="pS">sec</label>
+            </div>
+          </div>
+          <div class="actions">
+            <button type="submit" id="pSave" class="btn btn-primary">Save preset</button>
+            <button type="button" id="pCancel" class="btn btn-ghost">Cancel</button>
+            <button type="button" id="pDelete" class="custom-toggle danger" hidden>Delete</button>
+          </div>
+        </form>
       </div>
 
       <div id="done" class="done" hidden>

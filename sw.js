@@ -1,4 +1,4 @@
-const CACHE = "ember-v4";
+const CACHE = "ember-v5";
 
 const APP_SHELL = [
   "./",

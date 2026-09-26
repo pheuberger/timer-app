@@ -8,3 +8,5 @@
 - Playwright's `fill()` fails on the custom h/m/s inputs — they're collapsed behind the "Custom time" toggle and stay `hidden` in headless. Set `.value` via `page.evaluate` and dispatch an `input` event instead.
 - Headless software WebGL renders frames slowly, so wall-clock assertions drift: a 2s timer can already read "Done" ~600ms after start because `evaluate` calls queue behind heavy frames. Assert on end state, not intermediate timing.
 - Google Fonts requests fail in the sandbox — ignore those console errors.
+- User presets persist in `localStorage` under `ember.presets` (a missing key means "use the shipped defaults", `[]` means none). Use a fresh browser context per scenario or clear the key, or a previous run's presets leak into the next.
+- In preset edit mode ("Edit presets" toggle) clicking a chip opens the editor instead of selecting it, and the Start button is hidden — leave edit mode ("Done") before driving the timer.

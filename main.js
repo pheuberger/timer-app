@@ -592,9 +592,30 @@ const el = {
   inH: document.getElementById("inH"),
   inM: document.getElementById("inM"),
   inS: document.getElementById("inS"),
+  editToggle: document.getElementById("editToggle"),
+  restoreBtn: document.getElementById("restoreBtn"),
+  editor: document.getElementById("editor"),
+  editorTitle: document.getElementById("editorTitle"),
+  iconGrid: document.getElementById("iconGrid"),
+  pName: document.getElementById("pName"),
+  pH: document.getElementById("pH"),
+  pM: document.getElementById("pM"),
+  pS: document.getElementById("pS"),
+  pCancel: document.getElementById("pCancel"),
+  pDelete: document.getElementById("pDelete"),
 };
 
-const PRESETS = [
+// ---------------------------------------------------------------------------
+// Presets — the shipped set is only a starting point. Users can edit, remove
+// and add their own; once they do, the list is persisted in localStorage and
+// fully replaces the defaults (an empty list is a valid choice). Each preset
+// is { id, label, ms, icon } with icon a key of ICONS or null.
+// ---------------------------------------------------------------------------
+const PRESET_KEY = "ember.presets";
+const MAX_PRESET_MS = (9 * 3600 + 59 * 60 + 59) * 1000;
+const MAX_LABEL = 18;
+
+const DEFAULT_PRESETS = [
   { label: "25s", ms: 25 * 1000 },
   { label: "1m", ms: 60 * 1000 },
   { label: "5m", ms: 5 * 60 * 1000 },
@@ -603,25 +624,274 @@ const PRESETS = [
   { label: "1hr", ms: 60 * 60 * 1000 },
 ];
 
+// Monochrome line icons (24-unit grid, 1.6 stroke, drawn in currentColor so
+// they inherit the chip's tint). Kept to a small, quiet set on purpose.
+const ICONS = {
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  candle: '<path d="M10 22v-9a2 2 0 0 1 4 0v9"/><path d="M8 22h8"/><path d="M12 10V8"/><path d="M12 2c-1.1 1.2-1.7 2.1-1.7 3a1.7 1.7 0 0 0 3.4 0c0-.9-.6-1.8-1.7-3z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
+  star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  sprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
+  drop: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
+  wind: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/>',
+  mountain: '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  coffee: '<path d="M10 2v2M14 2v2M6 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/>',
+  book: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  hourglass: '<path d="M5 22h14M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  dumbbell: '<path d="M6 7v10M18 7v10M3 9v6M21 9v6M6 12h12"/>',
+  bed: '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+  feather: '<path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><path d="M16 8 2 22"/><path d="M17.5 15H9"/>',
+};
+const ICON_NONE = '<path d="M5 12h14"/>';
+
+function iconSvg(inner, cls) {
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+}
+
+// "25m", "1h 30m", "45s" — the label a preset gets when the user leaves the
+// name blank
+function shortLabel(ms) {
+  const t = Math.round(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  if (h && !m && !s) return `${h}hr`;
+  const parts = [];
+  if (h) parts.push(`${h}h`);
+  if (m) parts.push(`${m}m`);
+  if (s) parts.push(`${s}s`);
+  return parts.join(" ");
+}
+
+let presetSeq = 0;
+function normalizePreset(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const ms = Math.round(Number(raw.ms));
+  if (!Number.isFinite(ms) || ms < 1000 || ms > MAX_PRESET_MS) return null;
+  const icon = typeof raw.icon === "string" && ICONS[raw.icon] ? raw.icon : null;
+  let label = typeof raw.label === "string" ? raw.label.trim().slice(0, MAX_LABEL) : "";
+  if (!label && !icon) label = shortLabel(ms); // never render an empty chip
+  return { id: `p${presetSeq++}`, label, ms, icon };
+}
+
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESET_KEY);
+    if (raw != null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(normalizePreset).filter(Boolean);
+    }
+  } catch (e) { /* unavailable or corrupt storage: fall back to the defaults */ }
+  return DEFAULT_PRESETS.map(normalizePreset);
+}
+
+function savePresets() {
+  try {
+    localStorage.setItem(PRESET_KEY, JSON.stringify(presets.map(({ label, ms, icon }) => ({ label, ms, icon }))));
+  } catch (e) { /* private mode / quota: presets still work for this session */ }
+}
+
+let presets = loadPresets();
+let activePresetId = null;
 let activeChip = null;
-PRESETS.forEach((p) => {
-  const b = document.createElement("button");
-  b.className = "chip";
-  b.textContent = p.label;
-  b.addEventListener("click", () => {
-    setDuration(p.ms);
-    setActiveChip(b);
-    syncInputs(p.ms);
-  });
-  el.presets.appendChild(b);
-  if (p.ms === totalMs) { b.classList.add("active"); activeChip = b; }
-});
+let editing = false;   // edit mode: chips open the editor instead of selecting
+let editingId = null;  // preset open in the editor, null when creating
+let editorIcon = null;
+
+function renderPresets() {
+  el.presets.innerHTML = "";
+  activeChip = null;
+  for (const p of presets) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (p.label ? "" : " icon-only");
+    if (p.icon) b.insertAdjacentHTML("beforeend", iconSvg(ICONS[p.icon], "chip-icon"));
+    if (p.label) {
+      const span = document.createElement("span");
+      span.className = "chip-label";
+      span.textContent = p.label;
+      b.appendChild(span);
+    }
+    const name = p.label || shortLabel(p.ms);
+    b.title = p.label ? "" : shortLabel(p.ms);
+    b.setAttribute("aria-label", p.label ? `${p.label}, ${shortLabel(p.ms)}` : name);
+    const x = document.createElement("span");
+    x.className = "chip-x";
+    x.setAttribute("role", "button");
+    x.setAttribute("aria-label", `Remove ${name}`);
+    x.textContent = "×";
+    x.addEventListener("click", (e) => { e.stopPropagation(); removePreset(p.id); });
+    b.appendChild(x);
+    b.addEventListener("click", () => (editing ? openEditor(p) : selectPreset(p, b)));
+    if (p.id === activePresetId) { b.classList.add("active"); activeChip = b; }
+    el.presets.appendChild(b);
+  }
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "chip chip-add";
+  add.textContent = "+ New";
+  add.addEventListener("click", () => openEditor(null));
+  el.presets.appendChild(add);
+}
+
+function selectPreset(p, chip) {
+  setDuration(p.ms);
+  activePresetId = p.id;
+  setActiveChip(chip);
+  syncInputs(p.ms);
+}
 
 function setActiveChip(b) {
   if (activeChip) activeChip.classList.remove("active");
   activeChip = b;
   if (b) b.classList.add("active");
+  if (!b) activePresetId = null;
 }
+
+function removePreset(id) {
+  presets = presets.filter((p) => p.id !== id);
+  if (activePresetId === id) activePresetId = null; // keep the duration, drop the highlight
+  savePresets();
+  renderPresets();
+}
+
+function restoreDefaults() {
+  presets = DEFAULT_PRESETS.map(normalizePreset);
+  try { localStorage.removeItem(PRESET_KEY); } catch (e) { /* ignore */ }
+  const match = presets.find((p) => p.ms === totalMs);
+  activePresetId = match ? match.id : null;
+  renderPresets();
+}
+
+function setEditing(on) {
+  editing = on;
+  document.body.classList.toggle("editing", on);
+  el.editToggle.textContent = on ? "Done" : "Edit presets";
+  if (on) {
+    el.customFields.setAttribute("hidden", "");
+    el.customToggle.textContent = "Custom time";
+  } else {
+    closeEditor();
+  }
+}
+
+// --- editor -----------------------------------------------------------------
+function renderIconGrid() {
+  el.iconGrid.innerHTML = "";
+  const options = [[null, ICON_NONE, "No icon"], ...Object.keys(ICONS).map((k) => [k, ICONS[k], k])];
+  for (const [key, inner, name] of options) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon-opt" + (key ? "" : " icon-none") + (key === editorIcon ? " selected" : "");
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(key === editorIcon));
+    b.setAttribute("aria-label", name);
+    b.title = name;
+    b.innerHTML = iconSvg(inner, "");
+    b.addEventListener("click", () => {
+      editorIcon = key;
+      for (const o of el.iconGrid.children) {
+        const on = o === b;
+        o.classList.toggle("selected", on);
+        o.setAttribute("aria-checked", String(on));
+      }
+      updateNamePlaceholder();
+    });
+    el.iconGrid.appendChild(b);
+  }
+}
+
+function readFields(hEl, mEl, sEl) {
+  const h = Math.min(9, Math.max(0, parseInt(hEl.value) || 0));
+  const m = Math.min(59, Math.max(0, parseInt(mEl.value) || 0));
+  const s = Math.min(59, Math.max(0, parseInt(sEl.value) || 0));
+  return (h * 3600 + m * 60 + s) * 1000;
+}
+
+function writeFields(hEl, mEl, sEl, ms) {
+  const t = Math.round(ms / 1000);
+  hEl.value = Math.floor(t / 3600);
+  mEl.value = Math.floor((t % 3600) / 60);
+  sEl.value = t % 60;
+}
+
+// the name falls back to the duration, so show that as the placeholder
+function updateNamePlaceholder() {
+  const ms = readFields(el.pH, el.pM, el.pS);
+  el.pName.placeholder = ms >= 1000 ? shortLabel(ms) : "Name";
+}
+
+function openEditor(p) {
+  editingId = p ? p.id : null;
+  editorIcon = p ? p.icon : null;
+  el.editorTitle.textContent = p ? "Edit preset" : "New preset";
+  el.pName.value = p ? p.label : "";
+  writeFields(el.pH, el.pM, el.pS, p ? p.ms : 10 * 60 * 1000);
+  el.pDelete.hidden = !p;
+  renderIconGrid();
+  updateNamePlaceholder();
+  document.body.classList.add("editor-open");
+  el.editor.removeAttribute("hidden");
+  el.pName.focus();
+}
+
+function closeEditor() {
+  editingId = null;
+  el.editor.setAttribute("hidden", "");
+  document.body.classList.remove("editor-open");
+}
+
+function saveEditor() {
+  const ms = readFields(el.pH, el.pM, el.pS);
+  if (ms < 1000) {
+    for (const inp of [el.pH, el.pM, el.pS]) {
+      inp.classList.remove("invalid");
+      void inp.offsetWidth; // restart the nudge animation
+      inp.classList.add("invalid");
+    }
+    el.pS.focus();
+    return;
+  }
+  const next = normalizePreset({ label: el.pName.value, ms, icon: editorIcon });
+  const idx = presets.findIndex((p) => p.id === editingId);
+  if (idx >= 0) {
+    next.id = editingId;
+    presets[idx] = next;
+    if (activePresetId === editingId) { setDuration(next.ms); syncInputs(next.ms); }
+  } else {
+    presets.push(next);
+  }
+  savePresets();
+  renderPresets();
+  closeEditor();
+}
+
+el.editor.addEventListener("submit", (e) => { e.preventDefault(); saveEditor(); });
+el.pCancel.addEventListener("click", closeEditor);
+el.pDelete.addEventListener("click", () => { const id = editingId; closeEditor(); removePreset(id); });
+el.editor.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeEditor(); } });
+[el.pH, el.pM, el.pS].forEach((inp) => {
+  inp.addEventListener("input", () => { inp.classList.remove("invalid"); updateNamePlaceholder(); });
+});
+el.editToggle.addEventListener("click", () => setEditing(!editing));
+el.restoreBtn.addEventListener("click", restoreDefaults);
+
+// initial selection: the preset matching the default duration, else the first
+{
+  const initial = presets.find((p) => p.ms === totalMs) || presets[0];
+  if (initial) { totalMs = remainingMs = initial.ms; activePresetId = initial.id; }
+  syncInputs(totalMs);
+}
+renderPresets();
 
 function setDuration(ms) {
   totalMs = Math.max(1000, ms);
@@ -643,17 +913,11 @@ function updateTimeLabel(ms) {
 }
 
 function syncInputs(ms) {
-  const t = Math.round(ms / 1000);
-  el.inH.value = Math.floor(t / 3600);
-  el.inM.value = Math.floor((t % 3600) / 60);
-  el.inS.value = t % 60;
+  writeFields(el.inH, el.inM, el.inS, ms);
 }
 
 function readInputs() {
-  const h = Math.min(9, Math.max(0, parseInt(el.inH.value) || 0));
-  const m = Math.min(59, Math.max(0, parseInt(el.inM.value) || 0));
-  const s = Math.min(59, Math.max(0, parseInt(el.inS.value) || 0));
-  return (h * 3600 + m * 60 + s) * 1000;
+  return readFields(el.inH, el.inM, el.inS);
 }
 
 [el.inH, el.inM, el.inS].forEach((inp) => {
@@ -994,6 +1258,7 @@ function start() {
   if (remainingMs <= 0) remainingMs = totalMs;
   state = State.RUNNING;
   lastTick = performance.now();
+  if (editing) setEditing(false);
   const a = initAudio();
   if (a) {
     clearTimeout(suspendTimeout);
@@ -1047,8 +1312,9 @@ el.startBtn.addEventListener("click", () => {
   el.customToggle.textContent = "Custom time";
 });
 
-// Keyboard: space toggles start/reset
+// Keyboard: space toggles start/reset (but never while typing in a field)
 addEventListener("keydown", (e) => {
+  if (e.target && e.target.matches && e.target.matches("input, textarea")) return;
   if (e.code === "Space") {
     e.preventDefault();
     if (state === State.RUNNING) reset();
